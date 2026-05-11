@@ -16,7 +16,7 @@ const App = () => {
     }
     setLoading(true);
     try {
-      const response = await axios.post("http://localhost:8001/recommend", {
+      const response = await axios.post("/recommend", {
         query: query.trim(),
       });
       if (response.data.error) {
