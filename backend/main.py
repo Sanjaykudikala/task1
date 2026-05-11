@@ -1,79 +1,42 @@
-import os
-import re
-import json
-import requests
+import os, re, json, requests
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Load environment variables from .env file
 load_dotenv()
-
 app = FastAPI()
 
-# Allow all origins (for development)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Allow Frontend to connect
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 class QueryRequest(BaseModel):
     query: str
 
 @app.post("/recommend")
-async def recommend(req: QueryRequest):
-    query = req.query.strip()
-    if not query:
-        return {"error": "Query is required"}
+def recommend(req: QueryRequest):
+    # 1. Setup the AI Prompt
+    prompt = f"Recommend 5 products for: {req.query}. Return ONLY a JSON list with: name, price, description, link. No extra text."
 
-    prompt = f"""You are a product recommendation assistant.
-
-Based on the user's query, recommend 5 relevant products.
-
-Return ONLY valid JSON in this format:
-
-[
-  {{
-    "name": "",
-    "price": "",
-    "description": "",
-    "link": ""
-  }}
-]
-
-Do not include explanations.
-Do not include markdown.
-Return only JSON.
-
-User Query:
-"{query}"
-"""
-
-    headers = {
-        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    # 2. Call Groq API
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
-        headers=headers,
-        json=body,
+        headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"},
+        json={
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}]
+        }
     )
+    
+    # 3. Handle Errors
     data = response.json()
-    if "error" in data:
-        return {"error": data["error"].get("message", "Groq API error")}
+    if "error" in data: return {"error": data["error"]["message"]}
+
+    # 4. Extract and Parse JSON from AI response
     ai_text = data["choices"][0]["message"]["content"]
     match = re.search(r"\[.*\]", ai_text, re.DOTALL)
-    if not match:
-        return {"error": "Failed to parse AI response"}
-    products = json.loads(match.group())
-    return products
+    
+    return json.loads(match.group()) if match else {"error": "AI parsing failed"}
 
 if __name__ == "__main__":
     import uvicorn
